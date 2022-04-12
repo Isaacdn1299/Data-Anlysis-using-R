@@ -1,0 +1,359 @@
+---
+title: "Bellabeat Google Data Analytics Certificate capstone project"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+##3.Prepare
+
+First step to start our analysis is to install tidyverse and call all the necessary libraries
+
+```{r}
+install.packages("tidyverse",repos = "http://cran.us.r-project.org")
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(sqldf)
+library(ggpubr)
+library(waffle)
+library(scales)
+library(RColorBrewer)
+
+
+```
+
+To continue to set up our working environment, we assign the folder path where where we store all of our data, to a variable. This will make it easier to read all of them using dir and read_csv functions.
+```{r}
+dp <- "~/Cursos-Programas/Google Data Analytics Certificate 2021/Capstone Project/archive (1)/Fitabase Data 4.12.16-5.12.16"
+
+##setwd sets a working directory.
+setwd(dp)
+
+##asigning a vector of all files with .csv format using dir function
+files <- dir(dp,pattern="*.csv")
+files
+
+df <- files %>%
+  map(~ read_csv(file.path(dp, .))) 
+df
+df
+```
+We proceed to import all the data we need and create a data frame for each one of the files we will be using.
+```{r}
+##setwd sets a working directory.
+setwd(dp)
+
+activity <- read_csv ( file="dailyActivity_merged.csv")
+calories <- read_csv(file="dailyCalories_merged.csv")
+intensities <- read_csv(file="dailyIntensities_merged.csv")
+steps <- read_csv(file = "dailySteps_merged.csv")
+h_steps <- read_csv(file = "hourlySteps_merged.csv")
+sleep <- read_csv(file = "sleepDay_merged.csv") 
+weight <- read_csv(file = "weightLogInfo_merged.csv")
+```
+
+After analyzing our data, we realize the activity DF contains a summary of calories, intensities and steps dataframes.
+We then decide to elimminate these 3 DF, since activity has all the data we will need.
+```{r}
+rm (calories,intensities,steps)
+
+```
+Now we check how many distinct users we have in each one of our data frames.
+```{r}
+
+## Now we count the distinct Id there are in our data frames FORMAT: n_distinct(df_name$column_name)
+n_distinct(activity$Id)
+n_distinct(h_steps$Id)
+n_distinct(sleep$Id)
+n_distinct(weight$Id)
+```
+We notice the weight DF has missing information, therefore, we decide to remove it from our analysis. 
+We will also check for any duplicates in the rest of our dataframes.
+
+```{r}
+## Due to the small sample size of weight data, we will remove it
+rm(weight)
+
+##Checking for duplicates
+sum (duplicated(activity))
+sum (duplicated(h_steps))
+sum(duplicated(sleep))
+```
+We realized the sleep DF had 3 duplicates, so we proceed to remove them. Then, we make sure it is fixed.
+```{r}
+##Since sleep df has 3 duplicates, we proceed to remove them
+sleep <- unique(sleep)
+##Now we check if they were correctly removed
+sum(duplicated(sleep))
+```
+
+##4.Process
+
+We now enter the "Process" phase, where we'll clean our data and make sure it is in a correct format se it will be easier to work with.
+
+First, we change de colunmn names to all lower caps.
+```{r}
+##Changing column names
+activity <- rename_with(activity, tolower)
+sleep <- rename_with(sleep, tolower)
+h_steps <- rename_with(h_steps,  tolower)
+
+head(activity)
+head(sleep)
+head(h_steps)
+
+
+```
+
+Then, we make sure all our fields are in the correct format. 
+In this case, our date columns are stored as normal text, what we want to do is change all these columns to date/datetime as it corresponds.
+
+```{r}
+##Converting text format to date format, making sure activity_date is consistent with sleep_date before merging
+activity <- activity %>% 
+  rename(date = activitydate) %>% 
+  mutate(date= as_date(date, format= "%m/%d/%Y"))
+
+sleep <- sleep %>% 
+  rename(date = sleepday) %>% 
+  mutate(date = as_date(date, format = "%m/%d/%Y %I:%M:%S %p", tz= Sys.timezone()))
+
+head(activity)
+head(sleep)
+
+##Converting $acitvityhour coulmn in h_step to date time format
+
+h_steps <- h_steps %>% 
+  rename(act_date_time = activityhour) %>% 
+  mutate(act_date_time = as.POSIXct(act_date_time, format = "%d/%m/%Y %H:%M", tz = Sys.timezone()))
+
+head(h_steps)
+
+```
+The last step in our processing phase, will be to merge the sleep DF into the activity DF.
+```{r}
+##Merging both data frames into one. Sleep has fewer observations so use all.x=TRUE in script to keep unmatched cases in activity
+
+activity_sleep <- merge.data.frame(activity, sleep, by= c("id", "date"), all.x = TRUE)
+head(activity_sleep)
+
+```
+
+##5. Analyze and Share
+Starting the "Analyze" phase, we will create a new DF which contain the most important columns for our analysis, then we drop any registers that contain NA. 
+After, we use the summary function to get a quick glimpse about important statistical information about our data, such as mean, median, max, min, etc.
+```{r}
+activity_sleep %>% 
+  select(totalsteps, calories, veryactiveminutes, fairlyactiveminutes, lightlyactiveminutes,sedentaryminutes,totalsleeprecords, totalminutesasleep, totaltimeinbed) %>%
+  drop_na() %>%
+  summary()
+```
+
+We proceed to check a suspicious entry in the sedentaryminutes column, which turned out to be a false alarm.
+##Checking a suspicious entry using slice_min
+activity_sleep %>% 
+  slice_min(sedentaryminutes)
+
+
+##Checking for correlations between variables
+We now proceed to check the correlations between variables, first we have daily steps and calories.
+####Daily Steps vs Calories
+```{r}
+ggplot(data=activity_sleep, aes(x=totalsteps, y=calories)) + geom_point()
+ggplot(activity_sleep, aes(totalsteps,calories)) + geom_point() + geom_smooth()
+ggplot(activity_sleep, aes(totalsteps,calories)) + geom_point() + geom_smooth() + geom_jitter()
+
+```
+
+As we can see, there is a clear correlation between daily steps and calories burned. The more steps a user takes, the more calories he/she burnt during the day.
+
+####Steps vs sleep
+```{r}
+ggplot(data= subset(activity_sleep, !is.na(totalminutesasleep)), aes(totalsteps,totalminutesasleep)) + geom_point() + geom_smooth() + geom_jitter() + geom_rug()
+
+```
+After this analysis, we find out there isn't a clear co-relation between time slept and calories burnt
+
+Now, we check for the most active days of the week for all users. For this, we must separate date and time into 2 different columns.
+```{r}
+##Activity during the days of the week, so we separate date and time
+h_steps <- h_steps %>% 
+  separate(act_date_time, into= c("date", "time"), sep= " ") %>% 
+  mutate(date= ymd (date))
+
+head(h_steps)
+```
+Then, we add weekday as a new column, using "weekdays()" function
+```{r}
+##Adding weekday as a new column
+h_steps_wkday <- (h_steps) %>%
+  mutate(weekday= weekdays(date)) %>% 
+  group_by (weekday,time) %>% 
+  summarize(average_steps= mean(steptotal), .groups = 'drop')
+
+h_steps_wkday$weekday <- ordered(h_steps_wkday$weekday, levels =c ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+
+head(h_steps_wkday) 
+```
+We decide to use a heat map to show user activity per weekday and hour. This is an easy and graphical way to show our audience our findings.
+```{r}
+##Heat map to show users activity at one glance
+ggplot(h_steps_wkday, aes(x= time, y= weekday, fill= average_steps)) + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Active Time During the Week", x=" ", y=" ", fill = "Average/nsteps", caption= 'Data Source: Fitabase Data 4.12.16-5.12.16')+
+  scale_fill_gradient(low= "white", high= "red2")+ geom_tile(color= "white", lwd=.6, linetype =1)+
+  coord_fixed()+theme(plot.title = element_text(hjust = 0.5,vjust = 0.8, size=16), panel.background = element_blank())
+
+```
+With this, we find out saturdays between 11am-2pm and wednesdays 5pm-6pm are the user's most active days and hours.
+
+###User categorization 
+Based on daily activity level, we will group users into 4 types: Sedentary, Lightly Actvive, Fairly Actvive and Very Active. We based this categorization in scientific research.
+```{r}
+daily_average <- activity_sleep %>% 
+  group_by (id) %>% 
+  summarise(avg_daily_steps= mean(totalsteps), 
+            avg_daily_cal= mean(calories), 
+            avg_daily_sleep= mean(totalminutesasleep, 
+                                  na.rm = TRUE)) %>% 
+  mutate(user_type= case_when(
+    avg_daily_steps < 5000 ~ "sedentary",
+    avg_daily_steps >= 5000 & avg_daily_steps <7499 ~"lightly active",
+    avg_daily_steps >= 7499 & avg_daily_steps <9999 ~"fairly active",
+    avg_daily_steps >= 10000 ~"very active"
+  )) 
+
+head(daily_average)
+
+```
+We turn it into percentages, to give ourselves an idea of how the distribution between the categorizations look.
+```{r}
+##Turn it into percentages
+user_type_sum <- daily_average %>% 
+  group_by(user_type) %>% 
+  summarise(total= n()) %>% 
+  mutate(total_percent= scales::percent(total/sum(total)))
+
+user_type_sum
+```
+Each activity df split into users groups. To help visualize, we must create a new DF to add user_type to the activity_sleep data. This will help us identify if sleep has a relation with the user categorization we made earlier.
+
+```{r}
+activity_sleep_user_type <- merge(activity_sleep, daily_average[c("id","user_type")], by="id")
+
+activity_sleep_user_type$user_type <- ordered(activity_sleep_user_type$user_type, levels= c("sedentary", "lightly active", "fairly active","very active"))
+
+head(activity_sleep_user_type)
+
+```
+###User groups plots.
+
+Now, we proceed to create boxplots to show the relation between the user categories we created earlier and differente activities tracked by the device.
+
+####Steps per user group
+```{r}
+ggplot(activity_sleep_user_type, aes(x=user_type, y=totalsteps, fill=user_type))+ 
+  geom_boxplot() +
+  labs(x= "User type", y= "Daily steps", title="Total steps per user type", caption="Data Source: Fitabase Data 4.12.16-5.12.16")
+
+```
+
+####Calories per user group
+
+```{r}
+
+ggplot(activity_sleep_user_type, aes(x=user_type, y=calories, fill=user_type))+
+  geom_boxplot()+
+  stat_summary(fun = "mean", geom="point", shape= 23, size=2, fill="white")
+  labs(x="User type", y="Daily calories",  title="Daily calories burnt per user type", caption="Data Source: Fitabase Data 4.12.16-5.12.16")
+```
+
+####Daily distance per user group
+
+```{r}
+ggplot(activity_sleep_user_type, aes(x=user_type, y= totaldistance, fill= user_type))+
+    geom_boxplot()+
+    stat_summary(fun = "mean", geom= "point", shape= 23, size= 2, fill= "white")+
+  labs(x= "User Type", y="Total distance (miles)",title="Daily distance per user group", caption="Data Source: Fitabase Data 4.12.16-5.12.16" )
+```
+
+####Sleep time per user group
+```{r}
+  ggplot(activity_sleep_user_type, aes(x=user_type, y=totalminutesasleep, fill=user_type))+
+    geom_boxplot()+
+    stat_summary(fun= "mean", geom="point", shape= 23, size= 2, fill= "white")+
+    labs(x= "User Type", y="Total minutes slept", title="Sleep time per user group", caption="Data Source: Fitabase Data 4.12.16-5.12.16")
+
+```
+Now, we will categorize users based on their usage of the device. The categories will be as following:
+- Low use: 1-10 days.
+- Mid use: 11-20 days.
+- High use: 21-31 days.
+
+```{r}
+####Tracker use
+  days_usage <- activity_sleep_user_type %>% 
+    group_by(id) %>% 
+    summarize(record_days=sum(n())) %>% 
+    mutate(usage= case_when(
+      record_days >= 1 & record_days <= 10 ~"Low use",
+      record_days >= 11 & record_days <= 20 ~"Mid use",
+      record_days >= 21 & record_days <= 31 ~"High use",
+      ))
+  
+  head(days_usage)
+
+```
+We turn it into percentages to make the results clearer.
+
+```{r}
+ ##Turn it into percentages
+  usage_sum <- days_usage %>% 
+    group_by(usage) %>% 
+    summarise(total= n()) %>% 
+    mutate(total_percent= scales:: percent(total/sum(total)))
+  
+  usage_sum
+ 
+```
+
+Finally, we create a bar chart to show the difference in user usage distribution.
+```{r}
+  ggplot(usage_sum, aes(x= reorder(usage, -total), y=total, fill=total))+
+    geom_bar(stat="identity")+
+    labs(x="User usage", y="Total of users", title="Monthly users distribution")+
+    scale_fill_binned()
+```
+Finally, we group hourly date to check for usage trends within 24 hours.
+```{r}
+  ##Grouping hourly step by date to check for usage trends withing 24 hours.
+  h_step_trends <- h_steps %>% 
+    group_by(date) %>% 
+    summarise(average_hr= n()/33) 
+  
+  head(h_step_trends)
+```
+
+```{r}
+  ##Creating a line chart using hour trends.
+  ggplot(h_step_trends, aes(x=date, y= average_hr))+
+    geom_line()+
+    scale_x_date(breaks = date_breaks("1 day"), labels= date_format("%b-%d"), limits=(c(min(h_step_trends$date),max(h_step_trends$date))), expand= c(.02,.02))+
+    scale_y_continuous(limits = c(0,25), breaks = seq(0, by= 4, to=24))+
+    labs(x="Date", y="Hours", title="User trends", caption="Data Source: Fitabase Data 4.12.16-5.12.16")+
+    guides(x=guide_axis(n.dodge=2))
+```
+
+
+This concludes my analysis for now, this document will be updated.
+
+Lots of credit to Kaggle user IRENASHEN1, who's project I took as guide to complete this capstone project.
+   
+  
+  
+  
+
+  
+
