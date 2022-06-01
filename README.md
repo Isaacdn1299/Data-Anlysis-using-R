@@ -1,4 +1,4 @@
-# Data-Anlysis-using-R
+# Data-Analysis-using-R
 
 This is my Google Data Analysis Professional Certificate's Capstone Project.
 
